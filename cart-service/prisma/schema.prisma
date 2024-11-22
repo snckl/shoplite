@@ -1,0 +1,34 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Olabildigince basit bir veritabanı yaptım.
+// Projeyi okuması kolay olsun diye bu şekilde oluşturdum.
+model Cart {
+  id        String    @id @default(uuid())
+  userId    String    @unique
+  items     CartItem[]
+  total     Float   @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+}
+
+model CartItem {
+  id               String   @id @default(uuid())
+  productId        String
+  name             String
+  description      String
+  imageUri         String?
+  price            Decimal  @db.Decimal(10, 2)
+  quantity         Int
+  cartId           String
+  cart             Cart     @relation(fields: [cartId], references: [id])
+}

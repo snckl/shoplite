@@ -1,0 +1,182 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: traefik
+    ports:
+      - "80:80" # HTTP
+      - "8080:8080" # Traefik dashboard
+    command:
+      - "--api.insecure=true" # Enable Traefik dashboard (Disable in production or secure it)
+      - "--providers.docker=true" # Enable Docker provider
+      - "--providers.docker.exposedbydefault=false" # Only route explicitly exposed services
+      - "--entrypoints.web.address=:80" # HTTP entrypoint
+      # Global default timeout settings
+      - "--serversTransport.forwardingTimeouts.dialTimeout=30s"
+      - "--serversTransport.forwardingTimeouts.responseHeaderTimeout=30s"
+      # Global circuit breaker settings
+      - "--serversTransport.maxIdleConnsPerHost=10"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro" # Docker socket
+    networks:
+      - shoplite-network
+
+  auth-service:
+    build:
+      context: ./auth-service
+    image: snckl/auth-service:v1
+    env_file:
+      - ./auth-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/auth-service?schema=public
+      - RABBITMQ_URL=amqp://user:123456@rabbitmq:5672
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`localhost`) && PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/user`) || PathPrefix(`/auth-api-docs`)"
+      - "traefik.http.services.auth.loadbalancer.server.port=3001"
+      # Auth service specific resilience configuration
+      - "traefik.http.middlewares.auth-retry.retry.attempts=3"
+      - "traefik.http.middlewares.auth-retry.retry.initialInterval=100ms"
+      - "traefik.http.middlewares.auth-ratelimit.ratelimit.average=5" # Allow 5 requests per second
+      - "traefik.http.middlewares.auth-ratelimit.ratelimit.burst=10" # Max 10 requests in a burst
+      # Timeout configuration
+      - "traefik.http.routers.auth.middlewares=auth-retry"
+    restart: unless-stopped
+    networks:
+      - shoplite-network
+
+  product-service:
+    build:
+      context: ./product-service
+    image: snckl/product-service:v1
+    env_file:
+      - ./product-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/product-service?schema=public
+      - RABBITMQ_URL=amqp://user:123456@rabbitmq:5672
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.product.rule=Host(`localhost`) && PathPrefix(`/api/v1/product`) || PathPrefix(`/api/v1/category`) || PathPrefix(`/product-api-docs`)"
+      - "traefik.http.services.product.loadbalancer.server.port=3002"
+      # Product service specific resilience configuration
+      - "traefik.http.middlewares.product-retry.retry.attempts=3"
+      - "traefik.http.middlewares.product-retry.retry.initialInterval=100ms"
+      - "traefik.http.middlewares.product-ratelimit.ratelimit.average=10" # Allow 10 requests per second
+      - "traefik.http.middlewares.product-ratelimit.ratelimit.burst=20" # Max 20 requests in a burst
+      # Timeout configuration
+      - "traefik.http.routers.product.middlewares=product-retry"
+    restart: unless-stopped
+    networks:
+      - shoplite-network
+
+  cart-service:
+    build:
+      context: ./cart-service
+    image: snckl/cart-service:v1
+    env_file:
+      - ./cart-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/cart-service?schema=public
+      - RABBITMQ_URL=amqp://user:123456@rabbitmq:5672
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.cart.rule=Host(`localhost`) && PathPrefix(`/api/v1/cart`) || PathPrefix(`/cart-api-docs`)"
+      - "traefik.http.services.cart.loadbalancer.server.port=3003"
+      # Cart service specific resilience configuration
+      - "traefik.http.middlewares.cart-retry.retry.attempts=3"
+      - "traefik.http.middlewares.cart-retry.retry.initialInterval=100ms"
+      - "traefik.http.middlewares.cart-ratelimit.ratelimit.average=5" # Allow 5 requests per second
+      - "traefik.http.middlewares.cart-ratelimit.ratelimit.burst=15" # Max 15 requests in a burst
+      # Timeout configuration
+      - "traefik.http.routers.cart.middlewares=cart-retry"
+    restart: unless-stopped
+    networks:
+      - shoplite-network
+
+  order-service:
+    build:
+      context: ./order-service
+    image: snckl/order-service:v1
+    env_file:
+      - ./order-service/.env
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/order-service?schema=public
+      - RABBITMQ_URL=amqp://user:123456@rabbitmq:5672
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.order.rule=Host(`localhost`) && PathPrefix(`/api/v1/order`) || PathPrefix(`/order-api-docs`)"
+      - "traefik.http.services.order.loadbalancer.server.port=3004"
+      # Order service specific resilience configuration
+      - "traefik.http.middlewares.order-retry.retry.attempts=3"
+      - "traefik.http.middlewares.order-retry.retry.initialInterval=100ms"
+      - "traefik.http.middlewares.order-ratelimit.ratelimit.average=7" # Allow 7 requests per second
+      - "traefik.http.middlewares.order-ratelimit.ratelimit.burst=14" # Max 14 requests in a burst
+      # Timeout configuration
+      - "traefik.http.routers.order.middlewares=order-retry"
+    restart: unless-stopped
+    networks:
+      - shoplite-network
+
+  db:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shoplite # The default database
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - shoplite-network
+
+  rabbitmq:
+    image: "rabbitmq:management"
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: 123456
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    networks:
+      - shoplite-network
+    healthcheck:
+      test: ["CMD", "rabbitmqctl", "status"] # Run rabbitmqctl to check status
+      interval: 30s # Check every 30 seconds
+      retries: 5 # Retry 5 times before marking as unhealthy
+      start_period: 10s # Wait 10 seconds before starting health checks
+      timeout: 5s # Timeout for the health check command
+
+volumes:
+  postgres-data:
+
+networks:
+  shoplite-network:
+    driver: bridge

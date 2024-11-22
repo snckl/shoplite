@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id           String        @id @default(uuid())
+  userId       String
+  status       OrderStatus   @default(PENDING)
+  totalAmount  Decimal       @default(0.0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  orderItems   OrderItem[]
+  payment      Payment?      @relation
+  paymentId    String?       @unique
+  delivery     DigitalProductDelivery?
+  @@index([userId])
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  productId  String
+  productName String
+  quantity   Int      @default(1)
+  price      Decimal  @default(0.0)
+  createdAt  DateTime @default(now())
+  order      Order    @relation(fields: [orderId], references: [id])
+  
+  @@index([orderId])
+}
+
+model Payment {
+  id          String          @id @default(uuid())
+  stripeId    String
+  amount      Decimal         @default(0.0)
+  status      PaymentStatus   @default(PENDING)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  orderId     String          @unique  
+  order       Order           @relation(fields: [orderId], references: [id])
+  @@index([orderId])
+}
+
+model DigitalProductDelivery {
+  id          String    @id @default(uuid())
+  orderId     String    @unique
+  email       String
+  status      DeliveryStatus @default(PENDING)
+  sentAt      DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  order       Order     @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  DELIVERED
+  CANCELLED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  REFUNDED
+}
